@@ -1,222 +1,328 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
+import '../models/tag.dart';
+import '../models/alarm.dart';
+import '../utils/constants.dart';
 
 class WebSocketService {
-  static const String _baseUrl = 'ws://localhost:8000/ws';
+  static final WebSocketService _instance = WebSocketService._internal();
+  factory WebSocketService() => _instance;
+  WebSocketService._internal();
+
   WebSocketChannel? _channel;
-  StreamController<dynamic>? _messageController;
+  StreamController<List<Tag>> _tagsController = StreamController.broadcast();
+  StreamController<List<Alarm>> _alarmsController = StreamController.broadcast();
+  StreamController<String> _connectionController = StreamController.broadcast();
+  StreamController<Map<String, dynamic>> _rawMessageController = StreamController.broadcast();
+
   bool _isConnected = false;
+  bool _isConnecting = false;
+  int _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
 
-  // Connection state stream
-  final StreamController<bool> _connectionController =
-      StreamController<bool>.broadcast();
-  
-  // Message stream
-  Stream<dynamic> get messageStream =>
-      _messageController?.stream ?? const Stream.empty();
-  
-  // Connection state stream
-  Stream<bool> get connectionStream => _connectionController.stream;
-  
-  // Current connection state
+  // Public streams
+  Stream<List<Tag>> get tagsStream => _tagsController.stream;
+  Stream<List<Alarm>> get alarmsStream => _alarmsController.stream;
+  Stream<String> get connectionStream => _connectionController.stream;
+  Stream<Map<String, dynamic>> get rawMessageStream => _rawMessageController.stream;
+
   bool get isConnected => _isConnected;
+  bool get isConnecting => _isConnecting;
 
-  Future<void> connect() async {
+  Future<void> connect({String? customUrl}) async {
+    if (_isConnecting || _isConnected) return;
+
+    _isConnecting = true;
+    _connectionController.add('connecting');
+
     try {
-      // Close existing connection if any
-      await disconnect();
+      final url = customUrl ?? AppConstants.websocketBaseUrl;
+      _channel = WebSocketChannel.connect(Uri.parse(url));
 
-      // Create new WebSocket connection
-      _channel = WebSocketChannel.connect(Uri.parse('$_baseUrl/tags/'));
-      _messageController = StreamController<dynamic>.broadcast();
-
-      // Listen for messages
       _channel!.stream.listen(
-        (dynamic message) {
-          _handleMessage(message);
-        },
-        onError: (error) {
-          _handleError(error);
-        },
-        onDone: () {
-          _handleDisconnection();
-        },
+        _handleMessage,
+        onError: _handleError,
+        onDone: _handleDisconnect,
       );
 
       _isConnected = true;
-      _connectionController.add(true);
+      _isConnecting = false;
+      _reconnectAttempts = 0;
+      _connectionController.add('connected');
       
-      print('WebSocket connected successfully');
-    } catch (error) {
-      _isConnected = false;
-      _connectionController.add(false);
-      print('WebSocket connection failed: $error');
-      rethrow;
+      print('WebSocket connected to $url');
+
+    } catch (e) {
+      _handleError(e);
     }
   }
 
-  Future<void> disconnect() async {
-    _isConnected = false;
-    _connectionController.add(false);
+  void disconnect() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     
-    await _channel?.sink.close();
-    await _messageController?.close();
-    
+    _channel?.sink.close(status.goingAway);
     _channel = null;
-    _messageController = null;
+    
+    _isConnected = false;
+    _isConnecting = false;
+    _connectionController.add('disconnected');
+    
+    print('WebSocket disconnected');
+  }
+
+  void _handleMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message);
+      _rawMessageController.add(data);
+
+      final type = data['type'];
+      final payload = data['data'] ?? {};
+
+      switch (type) {
+        case 'tags_update':
+          _handleTagsUpdate(payload);
+          break;
+        case 'alarms_update':
+          _handleAlarmsUpdate(payload);
+          break;
+        case 'tag_update':
+          _handleSingleTagUpdate(payload);
+          break;
+        case 'alarm_triggered':
+          _handleAlarmTriggered(payload);
+          break;
+        case 'alarm_acknowledged':
+          _handleAlarmAcknowledged(payload);
+          break;
+        case 'alarm_resolved':
+          _handleAlarmResolved(payload);
+          break;
+        case 'ping':
+          _sendPong();
+          break;
+        default:
+          print('Unknown WebSocket message type: $type');
+      }
+    } catch (e) {
+      print('Error handling WebSocket message: $e');
+    }
+  }
+
+  void _handleTagsUpdate(dynamic payload) {
+    try {
+      if (payload is List) {
+        final tags = payload.map((tagData) => Tag.fromJson(tagData)).toList();
+        _tagsController.add(tags);
+      }
+    } catch (e) {
+      print('Error parsing tags update: $e');
+    }
+  }
+
+  void _handleAlarmsUpdate(dynamic payload) {
+    try {
+      if (payload is List) {
+        final alarms = payload.map((alarmData) => Alarm.fromJson(alarmData)).toList();
+        _alarmsController.add(alarms);
+      }
+    } catch (e) {
+      print('Error parsing alarms update: $e');
+    }
+  }
+
+  void _handleSingleTagUpdate(dynamic payload) {
+    try {
+      final tag = Tag.fromJson(payload);
+      // For single tag updates, we might want to handle differently
+      // For now, just add to the stream as a list with one element
+      _tagsController.add([tag]);
+    } catch (e) {
+      print('Error parsing single tag update: $e');
+    }
+  }
+
+  void _handleAlarmTriggered(dynamic payload) {
+    try {
+      final alarm = Alarm.fromJson(payload);
+      _alarmsController.add([alarm]);
+      // You might want to show a notification here
+      _showAlarmNotification(alarm);
+    } catch (e) {
+      print('Error parsing alarm triggered: $e');
+    }
+  }
+
+  void _handleAlarmAcknowledged(dynamic payload) {
+    try {
+      final alarm = Alarm.fromJson(payload);
+      _alarmsController.add([alarm]);
+    } catch (e) {
+      print('Error parsing alarm acknowledged: $e');
+    }
+  }
+
+  void _handleAlarmResolved(dynamic payload) {
+    try {
+      final alarm = Alarm.fromJson(payload);
+      _alarmsController.add([alarm]);
+    } catch (e) {
+      print('Error parsing alarm resolved: $e');
+    }
+  }
+
+  void _sendPong() {
+    sendMessage({
+      'type': 'pong',
+      'timestamp': DateTime.now().toIso8601String(),
+    });
   }
 
   void sendMessage(Map<String, dynamic> message) {
     if (_isConnected && _channel != null) {
       try {
         _channel!.sink.add(jsonEncode(message));
-      } catch (error) {
-        print('Error sending WebSocket message: $error');
+      } catch (e) {
+        print('Error sending WebSocket message: $e');
       }
     }
   }
 
-  void subscribeToTags() {
+  void subscribeToTags({List<int>? tagIds}) {
     sendMessage({
-      'action': 'subscribe_tags',
-      'type': 'subscribe_tags',
+      'type': 'subscribe',
+      'channel': 'tags',
+      'tag_ids': tagIds,
     });
   }
 
-  void subscribeToAlarms() {
+  void unsubscribeFromTags() {
     sendMessage({
-      'action': 'subscribe_alarms', 
-      'type': 'subscribe_alarms',
+      'type': 'unsubscribe',
+      'channel': 'tags',
     });
   }
 
-  void _handleMessage(dynamic message) {
-    try {
-      final decoded = jsonDecode(message);
-      _messageController?.add(decoded);
-    } catch (error) {
-      print('Error decoding WebSocket message: $error');
-    }
+  void subscribeToAlarms({List<int>? alarmIds}) {
+    sendMessage({
+      'type': 'subscribe',
+      'channel': 'alarms',
+      'alarm_ids': alarmIds,
+    });
+  }
+
+  void unsubscribeFromAlarms() {
+    sendMessage({
+      'type': 'unsubscribe',
+      'channel': 'alarms',
+    });
+  }
+
+  void requestTagsUpdate() {
+    sendMessage({
+      'type': 'request_update',
+      'channel': 'tags',
+    });
+  }
+
+  void requestAlarmsUpdate() {
+    sendMessage({
+      'type': 'request_update',
+      'channel': 'alarms',
+    });
+  }
+
+  void acknowledgeAlarm(int alarmId, int userId) {
+    sendMessage({
+      'type': 'acknowledge_alarm',
+      'alarm_id': alarmId,
+      'user_id': userId,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
   }
 
   void _handleError(dynamic error) {
     print('WebSocket error: $error');
-    _isConnected = false;
-    _connectionController.add(false);
-    
-    // Attempt to reconnect after a delay
+    _isConnecting = false;
+    _connectionController.add('error');
     _scheduleReconnect();
   }
 
-  void _handleDisconnection() {
+  void _handleDisconnect() {
     print('WebSocket disconnected');
     _isConnected = false;
-    _connectionController.add(false);
-    
-    // Attempt to reconnect after a delay
+    _isConnecting = false;
+    _connectionController.add('disconnected');
     _scheduleReconnect();
   }
 
   void _scheduleReconnect() {
-    Future.delayed(const Duration(seconds: 5), () {
+    if (_reconnectTimer != null) return;
+
+    _reconnectAttempts++;
+    final delay = _calculateReconnectDelay();
+
+    print('Scheduling reconnect in ${delay.inSeconds} seconds (attempt $_reconnectAttempts)');
+
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
       if (!_isConnected) {
-        print('Attempting to reconnect WebSocket...');
         connect();
       }
     });
   }
 
-  // Cleanup
-  void dispose() {
+  Duration _calculateReconnectDelay() {
+    if (_reconnectAttempts == 0) return Duration.zero;
+    
+    final baseDelay = AppConstants.websocketReconnectDelay;
+    final maxDelay = Duration(seconds: 60);
+    
+    // Exponential backoff with jitter
+    final exponentialDelay = baseDelay * _reconnectAttempts;
+    final jitter = Duration(milliseconds: (Random().nextDouble() * 1000).round());
+    
+    final totalDelay = exponentialDelay + jitter;
+    
+    return totalDelay > maxDelay ? maxDelay : totalDelay;
+  }
+
+  void _showAlarmNotification(Alarm alarm) {
+    // This would integrate with your notification system
+    // For now, just print to console
+    print('🚨 ALARM: ${alarm.alarmDefinitionName} - ${alarm.message}');
+  }
+
+  Future<void> dispose() async {
     disconnect();
-    _connectionController.close();
+    await _tagsController.close();
+    await _alarmsController.close();
+    await _connectionController.close();
+    await _rawMessageController.close();
   }
 }
 
-// WebSocket message models
-class WebSocketMessage {
-  final String type;
-  final dynamic data;
-  final String? message;
-
-  WebSocketMessage({
-    required this.type,
-    this.data,
-    this.message,
-  });
-
-  factory WebSocketMessage.fromJson(Map<String, dynamic> json) {
-    return WebSocketMessage(
-      type: json['type'] as String,
-      data: json['data'],
-      message: json['message'] as String?,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'type': type,
-      if (data != null) 'data': data,
-      if (message != null) 'message': message,
-    };
-  }
+// Helper class for WebSocket message types
+class WebSocketMessageTypes {
+  static const String tagsUpdate = 'tags_update';
+  static const String alarmsUpdate = 'alarms_update';
+  static const String tagUpdate = 'tag_update';
+  static const String alarmTriggered = 'alarm_triggered';
+  static const String alarmAcknowledged = 'alarm_acknowledged';
+  static const String alarmResolved = 'alarm_resolved';
+  static const String ping = 'ping';
+  static const String pong = 'pong';
+  static const String subscribe = 'subscribe';
+  static const String unsubscribe = 'unsubscribe';
+  static const String requestUpdate = 'request_update';
+  static const String acknowledgeAlarm = 'acknowledge_alarm';
 }
 
-class TagUpdateMessage {
-  final int tagId;
-  final String tagName;
-  final double value;
-  final int quality;
-  final DateTime timestamp;
-
-  TagUpdateMessage({
-    required this.tagId,
-    required this.tagName,
-    required this.value,
-    required this.quality,
-    required this.timestamp,
-  });
-
-  factory TagUpdateMessage.fromJson(Map<String, dynamic> json) {
-    return TagUpdateMessage(
-      tagId: json['tag_id'] as int,
-      tagName: json['tag_name'] as String,
-      value: (json['value'] as num).toDouble(),
-      quality: json['quality'] as int,
-      timestamp: DateTime.parse(json['timestamp'] as String),
-    );
-  }
+// Random number generator for jitter
+class Random {
+  static final _random = math.Random();
+  
+  static double nextDouble() => _random.nextDouble();
 }
-
-class AlarmUpdateMessage {
-  final int id;
-  final String name;
-  final String message;
-  final String severity;
-  final String tagName;
-  final DateTime triggeredAt;
-
-  AlarmUpdateMessage({
-    required this.id,
-    required this.name,
-    required this.message,
-    required this.severity,
-    required this.tagName,
-    required this.triggeredAt,
-  });
-
-  factory AlarmUpdateMessage.fromJson(Map<String, dynamic> json) {
-    return AlarmUpdateMessage(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      message: json['message'] as String,
-      severity: json['severity'] as String,
-      tagName: json['tag_name'] as String,
-      triggeredAt: DateTime.parse(json['triggered_at'] as String),
-    );
-  }
-}
-
-// Singleton instance
-final webSocketService = WebSocketService();

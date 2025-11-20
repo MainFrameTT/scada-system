@@ -1,67 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/alarms_provider.dart';
+import '../providers/tags_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/alarms/alarms_filter_bar.dart';
-import '../widgets/alarms/alarms_list.dart';
-import '../widgets/alarms/alarm_stats_card.dart';
+import '../widgets/objects/objects_filter_bar.dart';
+import '../widgets/objects/objects_grid.dart';
+import '../widgets/objects/object_types_summary.dart';
 
-class AlarmsScreen extends ConsumerStatefulWidget {
-  const AlarmsScreen({super.key});
+class PipelineObjectsScreen extends ConsumerStatefulWidget {
+  const PipelineObjectsScreen({super.key});
 
   @override
-  ConsumerState<AlarmsScreen> createState() => _AlarmsScreenState();
+  ConsumerState<PipelineObjectsScreen> createState() => _PipelineObjectsScreenState();
 }
 
-class _AlarmsScreenState extends ConsumerState<AlarmsScreen> {
-  String? _stateFilter;
-  String? _severityFilter;
+class _PipelineObjectsScreenState extends ConsumerState<PipelineObjectsScreen> {
+  String? _selectedObjectType;
 
   @override
   void initState() {
     super.initState();
-    _loadAlarms();
+    _loadData();
   }
 
-  Future<void> _loadAlarms() async {
-    await ref.read(alarmsProvider.notifier).fetchAlarms(
-      state: _stateFilter,
-      severity: _severityFilter,
-    );
+  Future<void> _loadData() async {
+    await ref.read(tagsProvider.notifier).fetchTags();
   }
 
-  void _onFilterChanged({String? state, String? severity}) {
+  void _onFilterChanged(String? objectType) {
     setState(() {
-      _stateFilter = state;
-      _severityFilter = severity;
+      _selectedObjectType = objectType;
     });
-    _loadAlarms();
   }
 
-  Future<void> _acknowledgeAlarm(int alarmId) async {
-    // In a real app, you would get the current user ID
-    const userId = 1;
-    await ref.read(alarmsProvider.notifier).acknowledgeAlarm(alarmId, userId);
-  }
-
-  Future<void> _refreshAlarms() async {
-    await _loadAlarms();
+  Future<void> _refreshData() async {
+    await _loadData();
   }
 
   @override
   Widget build(BuildContext context) {
-    final alarmsState = ref.watch(alarmsProvider);
+    final tagsState = ref.watch(tagsProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.darkTheme.scaffoldBackgroundColor,
       body: RefreshIndicator(
-        onRefresh: _refreshAlarms,
+        onRefresh: _refreshData,
         child: CustomScrollView(
           slivers: [
             // App Bar
             SliverAppBar(
               title: Text(
-                '🚨 Система аварий',
+                '🏗️ Объекты нефтепровода',
                 style: AppTheme.titleLarge.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -72,33 +60,36 @@ class _AlarmsScreenState extends ConsumerState<AlarmsScreen> {
               actions: [
                 IconButton(
                   icon: const Icon(Icons.refresh),
-                  onPressed: _refreshAlarms,
+                  onPressed: _refreshData,
                 ),
               ],
             ),
 
-            // Statistics Card
+            // Statistics Summary
             SliverToBoxAdapter(
-              child: AlarmStatsCard(stats: alarmsState.stats),
+              child: ObjectTypesSummary(
+                tagsState: tagsState,
+                selectedObjectType: _selectedObjectType,
+              ),
             ),
 
             // Filter Bar
             SliverToBoxAdapter(
-              child: AlarmsFilterBar(
-                stateFilter: _stateFilter,
-                severityFilter: _severityFilter,
+              child: ObjectsFilterBar(
+                selectedObjectType: _selectedObjectType,
                 onFilterChanged: _onFilterChanged,
+                tagsState: tagsState,
               ),
             ),
 
             // Error Display
-            if (alarmsState.error != null)
+            if (tagsState.error != null)
               SliverToBoxAdapter(
-                child: _buildErrorCard(alarmsState.error!),
+                child: _buildErrorCard(tagsState.error!),
               ),
 
             // Loading Indicator
-            if (alarmsState.isLoading)
+            if (tagsState.isLoading)
               const SliverToBoxAdapter(
                 child: Center(
                   child: Padding(
@@ -108,21 +99,21 @@ class _AlarmsScreenState extends ConsumerState<AlarmsScreen> {
                 ),
               ),
 
-            // Alarms List
-            if (!alarmsState.isLoading && alarmsState.error == null)
+            // Objects Grid
+            if (!tagsState.isLoading && tagsState.error == null)
               SliverPadding(
                 padding: EdgeInsets.symmetric(
                   horizontal: AppTheme.getHorizontalPadding(context),
                   vertical: 16.0,
                 ),
-                sliver: AlarmsList(
-                  alarms: alarmsState.filteredAlarms,
-                  onAcknowledgeAlarm: _acknowledgeAlarm,
+                sliver: ObjectsGrid(
+                  tagsState: tagsState,
+                  selectedObjectType: _selectedObjectType,
                 ),
               ),
 
             // Empty State
-            if (!alarmsState.isLoading && alarmsState.filteredAlarms.isEmpty)
+            if (!tagsState.isLoading && tagsState.tags.isEmpty)
               const SliverFillRemaining(
                 child: _EmptyState(),
               ),
@@ -130,9 +121,9 @@ class _AlarmsScreenState extends ConsumerState<AlarmsScreen> {
         ),
       ),
 
-      // Floating action button for quick actions
+      // Floating action button
       floatingActionButton: FloatingActionButton(
-        onPressed: _refreshAlarms,
+        onPressed: _refreshData,
         backgroundColor: AppTheme.infoColor,
         foregroundColor: Colors.white,
         child: const Icon(Icons.refresh),
@@ -165,7 +156,7 @@ class _AlarmsScreenState extends ConsumerState<AlarmsScreen> {
               IconButton(
                 icon: const Icon(Icons.close, color: Colors.white),
                 onPressed: () {
-                  ref.read(alarmsProvider.notifier).clearError();
+                  ref.read(tagsProvider.notifier).clearError();
                 },
               ),
             ],
@@ -185,20 +176,20 @@ class _EmptyState extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          Icons.notifications_off_outlined,
+          Icons.construction_outlined,
           size: 80.0,
           color: Colors.grey[600],
         ),
         const SizedBox(height: 16.0),
         Text(
-          'Аварии не найдены',
+          'Объекты не найдены',
           style: AppTheme.titleLarge.copyWith(
             color: Colors.grey[600],
           ),
         ),
         const SizedBox(height: 8.0),
         Text(
-          'Все системы работают в штатном режиме',
+          'Проверьте подключение к SCADA системе',
           style: AppTheme.bodyMedium.copyWith(
             color: Colors.grey[500],
           ),
