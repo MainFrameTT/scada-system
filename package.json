@@ -1,0 +1,30 @@
+{
+  "name": "scada-system",
+  "version": "0.0.1",
+  "description": "Cross-platform SCADA system for oil pipeline",
+  "scripts": {
+    "dev:backend": "cd backend && python manage.py runserver",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:mobile": "cd crossplatform && flutter run",
+    "dev:desktop": "cd crossplatform && flutter run -d windows",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    
+    "build:frontend": "cd frontend && npm run build",
+    "build:mobile": "cd crossplatform && flutter build apk && flutter build ios",
+    "build:desktop": "cd crossplatform && flutter build windows && flutter build linux && flutter build macos",
+    "build:all": "npm run build:frontend && npm run build:mobile && npm run build:desktop",
+    
+    "setup:backend": "cd backend && pip install -r requirements.txt",
+    "setup:frontend": "cd frontend && npm install",
+    "setup:flutter": "cd crossplatform && flutter pub get",
+    "setup:all": "npm run setup:backend && npm run setup:frontend && npm run setup:flutter",
+    
+    "test:all": "npm run test:backend && npm run test:frontend && npm run test:flutter",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  },
+  "keywords": ["scada", "oil-pipeline", "cross-platform", "flutter", "vue", "django"],
+  "author": "MainFrame"}   
