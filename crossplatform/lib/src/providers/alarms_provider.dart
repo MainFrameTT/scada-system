@@ -2,6 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/alarm.dart';
 import '../services/api_service.dart';
 
+// Добавляем провайдер ApiService прямо здесь
+final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
+
+// Остальной код оставляем как есть...
 // Alarms State
 class AlarmsState {
   final List<Alarm> alarms;
@@ -106,6 +110,7 @@ class AlarmStats {
     required this.low,
   });
 }
+
 
 // Alarms Notifier
 class AlarmsNotifier extends StateNotifier<AlarmsState> {

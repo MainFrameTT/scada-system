@@ -1,0 +1,27 @@
+name: scada_crossplatform
+description: "SCADA System Crossplatform Application"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  http: ^1.6.0
+  web_socket_channel: ^3.0.3
+  shared_preferences: ^2.5.3
+  connectivity_plus: ^5.0.2
+  url_launcher: ^6.3.2
+  syncfusion_flutter_charts: ^23.2.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.2
+
+flutter:
+  uses-material-design: true
+  

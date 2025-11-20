@@ -4,6 +4,7 @@ interface WebSocketMessage {
   type: string
   data?: any
   message?: string
+  action?: string
 }
 
 export function useWebSocket() {
@@ -23,7 +24,7 @@ export function useWebSocket() {
         console.log('WebSocket connected')
       }
       
-      socket.value.onmessage = (event) => {
+      socket.value.onmessage = (event: MessageEvent) => {
         try {
           lastMessage.value = JSON.parse(event.data)
           console.log('WebSocket message:', lastMessage.value)
@@ -35,11 +36,10 @@ export function useWebSocket() {
       socket.value.onclose = () => {
         isConnected.value = false
         console.log('WebSocket disconnected')
-        // Attempt to reconnect after 5 seconds
         setTimeout(connect, 5000)
       }
       
-      socket.value.onerror = (error) => {
+      socket.value.onerror = (error: Event) => {
         console.error('WebSocket error:', error)
         isConnected.value = false
       }
@@ -63,7 +63,7 @@ export function useWebSocket() {
 
   const subscribeToAlarms = () => {
     send({
-      type: 'subscribe_alarms', 
+      type: 'subscribe_alarms',
       action: 'subscribe_alarms'
     })
   }

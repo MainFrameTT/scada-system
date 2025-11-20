@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 class AppConstants {
   // API Constants
   static const String apiBaseUrl = 'http://localhost:8000/api';
@@ -283,9 +284,9 @@ class ThresholdConstants {
   }
 
   static Color getQualityColor(int quality) {
-    if (quality >= excellentQuality) return const Color(0xFF10B981); // Normal
-    if (quality >= goodQuality) return const Color(0xFFF59E0B); // Warning
-    return const Color(0xFFEF4444); // Critical
+    if (quality >= excellentQuality) return const Color(0xFF10B981);
+    if (quality >= goodQuality) return const Color(0xFFF59E0B);
+    return const Color(0xFFEF4444);
   }
 }
 
