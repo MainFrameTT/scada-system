@@ -1,0 +1,27 @@
+# Django
+*.pyc
+*__pycache__/
+db.sqlite3
+migrations/00*.py
+
+# Virtual Environment
+scada_env/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local
